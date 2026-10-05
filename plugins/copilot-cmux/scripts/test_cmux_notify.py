@@ -37,6 +37,9 @@ class TestHeadlessCopilot(unittest.TestCase):
         for command in [
             "/usr/local/bin/copilot --resume abc",
             'copilot -p "Explain --server"',
+            "copilot -p Explain --server",
+            "copilot -p --server",
+            "copilot Explain --server",
             "copilot -- --server",
         ]:
             with self.subTest(command=command):

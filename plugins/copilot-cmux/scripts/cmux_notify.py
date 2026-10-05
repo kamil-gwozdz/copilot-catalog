@@ -33,8 +33,7 @@ def is_headless_copilot() -> bool:
             print(f"cmux-notify: cannot inspect hook ancestry: {error}", file=sys.stderr)
             break
         if argv and os.path.basename(argv[0]) in ("copilot", "copilot.exe"):
-            options = argv[1:argv.index("--")] if "--" in argv else argv[1:]
-            return "--server" in options
+            return argv[1:2] == ["--server"]
     return False
 
 
