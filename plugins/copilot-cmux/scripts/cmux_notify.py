@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -8,6 +9,33 @@ import tempfile
 
 MAX_BODY_LENGTH = 180
 INTERACTIVE_TOOL_NAMES = {"ask_user", "exit_plan_mode"}
+
+
+def is_headless_copilot() -> bool:
+    pid = os.getppid()
+    for _ in range(16):
+        if pid <= 1:
+            break
+        try:
+            result = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "ppid=,args="],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=1,
+            )
+            if result.returncode != 0:
+                break
+            parent, command = result.stdout.strip().split(maxsplit=1)
+            pid = int(parent)
+            argv = shlex.split(command)
+        except (OSError, subprocess.TimeoutExpired, ValueError) as error:
+            print(f"cmux-notify: cannot inspect hook ancestry: {error}", file=sys.stderr)
+            break
+        if argv and os.path.basename(argv[0]) in ("copilot", "copilot.exe"):
+            options = argv[1:argv.index("--")] if "--" in argv else argv[1:]
+            return "--server" in options
+    return False
 
 
 def parse_hook_payload() -> dict:
@@ -599,6 +627,8 @@ def notify(title: str, subtitle: str, body: str) -> None:
 
 
 def main() -> int:
+    if is_headless_copilot():
+        return 0
     event_name = sys.argv[1] if len(sys.argv) > 1 else ""
     payload = parse_hook_payload()
 

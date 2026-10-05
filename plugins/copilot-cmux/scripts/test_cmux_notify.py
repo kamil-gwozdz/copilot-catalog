@@ -6,6 +6,7 @@ regressions where duplicate sidebar messages appear.
 """
 
 import json
+import io
 import os
 import subprocess
 import sys
@@ -17,6 +18,67 @@ import cmux_notify
 
 
 FAKE_CMUX = "/usr/local/bin/cmux"
+
+
+class TestHeadlessCopilot(unittest.TestCase):
+    @patch("cmux_notify.os.getppid", return_value=30)
+    @patch("cmux_notify.subprocess.run")
+    def test_sdk_server_through_shell_wrapper(self, run_mock, _ppid):
+        run_mock.side_effect = [
+            subprocess.CompletedProcess([], 0, "20 /bin/sh -c python3 hook.py\n"),
+            subprocess.CompletedProcess([], 0, "10 /usr/local/bin/copilot --server --stdio\n"),
+        ]
+        self.assertTrue(cmux_notify.is_headless_copilot())
+        self.assertEqual(run_mock.call_args_list[1].args[0][2], "20")
+
+    @patch("cmux_notify.os.getppid", return_value=30)
+    @patch("cmux_notify.subprocess.run")
+    def test_interactive_session_is_not_suppressed(self, run_mock, _ppid):
+        for command in [
+            "/usr/local/bin/copilot --resume abc",
+            'copilot -p "Explain --server"',
+            "copilot -- --server",
+        ]:
+            with self.subTest(command=command):
+                run_mock.return_value = subprocess.CompletedProcess([], 0, f"20 {command}\n")
+                self.assertFalse(cmux_notify.is_headless_copilot())
+
+    @patch("cmux_notify.os.getppid", return_value=30)
+    @patch("cmux_notify.subprocess.run")
+    def test_unrelated_server_and_exited_parent(self, run_mock, _ppid):
+        run_mock.side_effect = [
+            subprocess.CompletedProcess([], 0, "20 other-tool --server\n"),
+            subprocess.CompletedProcess([], 1, ""),
+        ]
+        self.assertFalse(cmux_notify.is_headless_copilot())
+
+    @patch("cmux_notify.os.getppid", return_value=30)
+    @patch("cmux_notify.subprocess.run", side_effect=OSError("ps unavailable"))
+    @patch("sys.stderr", new_callable=io.StringIO)
+    def test_inspection_failure_preserves_notifications(self, stderr, _run, _ppid):
+        self.assertFalse(cmux_notify.is_headless_copilot())
+        self.assertIn("cannot inspect hook ancestry", stderr.getvalue())
+
+    @patch("cmux_notify.is_headless_copilot", return_value=True)
+    @patch("cmux_notify.parse_hook_payload")
+    @patch("cmux_notify.subprocess.run")
+    def test_sdk_events_have_no_notification_or_sidebar_side_effects(self, run_mock, parse, _sdk):
+        for event in ("sessionStart", "preToolUse", "sessionEnd"):
+            with self.subTest(event=event), patch.object(sys, "argv", ["cmux_notify.py", event]):
+                self.assertEqual(cmux_notify.main(), 0)
+        parse.assert_not_called()
+        run_mock.assert_not_called()
+
+    @patch("cmux_notify.is_headless_copilot", return_value=False)
+    @patch("cmux_notify.parse_hook_payload", return_value={"reason": "complete"})
+    @patch("cmux_notify.handle_session_end")
+    @patch("cmux_notify.is_same_cmux_surface_active", return_value=False)
+    @patch("cmux_notify.notify")
+    def test_interactive_session_still_notifies(self, notify, _active, end, _parse, _sdk):
+        with patch.object(sys, "argv", ["cmux_notify.py", "sessionEnd"]):
+            self.assertEqual(cmux_notify.main(), 0)
+        end.assert_called_once()
+        notify.assert_called_once()
 
 
 def make_run_mock():

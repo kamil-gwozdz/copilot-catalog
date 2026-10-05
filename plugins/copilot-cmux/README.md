@@ -48,6 +48,10 @@ copilot plugin uninstall copilot-cmux
 
 ## Behavior
 
+Headless Copilot servers (`copilot --server`, including SDK clients) do not update the sidebar or send notifications. The handler checks its parent process chain before handling any event, so per-request SDK sessions cannot overwrite an interactive session's status or send completion alerts. Applications using the SDK remain responsible for their own completion notifications.
+
+If process inspection is unavailable, the handler reports the problem on stderr and preserves normal notification behaviour.
+
 1. On every `report_intent` tool call, the plugin updates the cmux workspace sidebar silently:
    - Renames the workspace to `"<project> — <session title>"` (only when the title changes).
    - Sets the sidebar status to the current intent (e.g., "Fixing auth bug", "Running tests") via `cmux set-status`.
